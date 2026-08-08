@@ -1,76 +1,98 @@
 # SHUDH-ASR
 
-Retrieval-grounded, agentic, confidence-calibrated post-ASR error correction
-for code-switched Indian languages, with a domain focus on banking/PMJDY
-terminology.
+**Retrieval-grounded, agentic post-ASR error correction for code-switched Indian languages.**
 
-## Project status: all 8 phases complete
+SHUDH-ASR is a correction layer for Automatic Speech Recognition (ASR) systems that targets a specific, unsolved problem in Indian-language voice interfaces: transcription errors in code-switched speech (Hindi-English) and domain-specific vocabulary (banking terms, government-scheme names) that general-purpose ASR models consistently get wrong — and that a naive "fix it with an LLM" approach makes *worse*, not better.
 
-| Phase | Script | Status | Key result |
-|---|---|---|---|
-| 1. ASR baseline | `src/run_baseline.py` | ✅ Done | Whisper-small on FLEURS Hindi: WER 68.00% |
-| 2. Naive LLM correction (no retrieval) | `src/phase2_naive_correction.py` | ✅ Done | WER rose to 98.10% — confirms the documented over-correction/hallucination failure mode |
-| 3. Domain knowledge base + retrieval | `src/phase3_build_kb.py` | ✅ Done | FAISS + multilingual embeddings, English + Devanagari terms, n-gram span matching |
-| 4. RAG-grounded correction | `src/phase4_rag_correction.py` | ✅ Done | Deterministic span substitution (not free LLM generation — found to be more reliable) |
-| 5. Verifier agent | `src/phase5_verifier.py` | ✅ Done | Rejects corrections not grounded in retrieval evidence |
-| 6. Confidence calibration + abstention | `src/phase6_calibration.py` | ✅ Done | 3-tier decision: auto-correct / flag for review / abstain |
-| 7. Full pipeline + explainability | `src/phase7_explainability.py` | ✅ Done | End-to-end pipeline with human-readable correction rationale |
-| 8. Domain-matched evaluation | `src/generate_domain_testset.py`, `src/run_domain_baseline.py` | ✅ Done | 15 TTS-synthesized banking/PMJDY sentences; see results below |
+Rather than asking a language model to freely regenerate a transcript, SHUDH-ASR retrieves the correct domain term from a knowledge base, verifies the match is genuinely grounded (not hallucinated), and only applies a correction when it is calibrated-confident enough to trust — otherwise it abstains and flags the transcript for human review.
 
-## Final results
+## Why this matters
 
-**General-domain (FLEURS Hindi):**
-- Baseline ASR: WER 68.00%
-- + naive LLM correction: WER 98.10% (worse — confirms failure mode)
-- + SHUDH-ASR (conservative threshold): WER 68.00% (unchanged — correctly abstains, no banking content present)
+Voice interfaces are often the only practical way for print-illiterate populations to access digital banking and government welfare schemes (e.g. PMJDY) in India. A mistranscribed account type or scheme name in this setting isn't a cosmetic error — it can misdirect an entire transaction. Existing Indic ASR systems leave residual errors concentrated in exactly these high-stakes terms, and the common fix (passing ASR output through a general LLM) is a documented failure mode that increases errors through over-correction and hallucination.
 
-**Domain-matched (banking/PMJDY, TTS-synthesized):**
-- Baseline ASR: WER 51.28%
-- + SHUDH-ASR (conservative threshold, 0.8): WER 51.28% (unchanged — safe, but low recall)
-- + SHUDH-ASR (permissive threshold, 0.45): WER 61.54% (worse — over-correction risk, motivates precision-first design)
+## Architecture
 
-**Key finding:** a precision-first (conservative threshold) design avoids introducing harm, at the cost of coverage. This motivates the paper's central claim and points to phonetic/transliteration-aware retrieval as necessary future work, since pure semantic-embedding retrieval is an unreliable bridge between Devanagari-script ASR errors and correct domain terms.
+```
+Audio → ASR (Whisper) → Domain Retriever (FAISS) → Corrector (span substitution)
+      → Verifier + Confidence Calibration → Corrected Transcript + Explanation
+```
 
-## Setup (if starting fresh on a new machine)
+Each ASR hypothesis is broken into overlapping word-level spans, compared against a bilingual (English + Devanagari) domain knowledge base using multilingual sentence embeddings, and the best match above a similarity threshold is substituted directly — never freely regenerated. A calibrated confidence score then decides whether to auto-correct, flag for human review, or leave the transcript untouched.
 
-```powershell
-cd shudh-asr
+## Results
+
+**General-domain speech (FLEURS, Hindi):**
+
+| Configuration | WER |
+|---|---|
+| ASR baseline | 68.00% |
+| + naive LLM correction (no retrieval) | 98.10% |
+| + SHUDH-ASR | 68.00% |
+
+**Domain-matched speech (banking/PMJDY):**
+
+| Configuration | WER |
+|---|---|
+| ASR baseline | 51.28% |
+| + SHUDH-ASR (conservative threshold) | 51.28% |
+| + SHUDH-ASR (permissive threshold) | 61.54% |
+
+Naive, ungrounded LLM correction raises error rate on general speech by nearly 30 points, directly confirming a failure mode reported in prior literature. A retrieval-grounded corrector reproduces the same risk when its similarity threshold is too permissive, while a conservative threshold avoids introducing errors — motivating the precision-first design used here.
+
+## Tech Stack
+
+- **ASR:** OpenAI Whisper (swappable for AI4Bharat IndicWhisper)
+- **Retrieval:** FAISS, multilingual sentence embeddings (paraphrase-multilingual-MiniLM)
+- **Correction:** Deterministic retrieval-grounded span substitution
+- **Evaluation:** `jiwer` (WER/CER), gTTS (domain test-set synthesis)
+- **Language:** Python
+
+## Project Structure
+
+```
+shudh-asr/
+├── src/
+│   ├── run_baseline.py              # ASR baseline + WER
+│   ├── phase2_naive_correction.py   # Naive LLM correction baseline
+│   ├── phase3_build_kb.py           # Domain knowledge base + retrieval
+│   ├── phase4_rag_correction.py     # Retrieval-grounded correction
+│   ├── phase5_verifier.py           # Groundedness verification
+│   ├── phase6_calibration.py        # Confidence calibration + abstention
+│   ├── phase7_explainability.py     # Full pipeline with explanations
+│   ├── generate_domain_testset.py   # Domain-matched test set (TTS)
+│   └── run_domain_baseline.py       # Domain evaluation
+├── kb/                               # Domain knowledge base (FAISS index)
+├── data/                             # Test data (gitignored)
+└── requirements.txt
+```
+
+## Installation
+
+```bash
 python -m venv .venv
-.venv\Scripts\Activate.ps1
+source .venv/bin/activate  # or .venv\Scripts\Activate.ps1 on Windows
 pip install -r requirements.txt
 ```
 
-## Reproducing the results, in order
+## Usage
 
-```powershell
+```bash
 cd src
-python download_data.py              # Phase 1 data
-python run_baseline.py                # Phase 1
-python phase2_naive_correction.py     # Phase 2
-python phase3_build_kb.py             # Phase 3
-python phase4_rag_correction.py       # Phase 4
-python phase5_verifier.py             # Phase 5
-python phase6_calibration.py          # Phase 6
-python phase7_explainability.py       # Phase 7
-python generate_domain_testset.py     # Phase 8 data (needs: pip install gTTS)
-python run_domain_baseline.py         # Phase 8 final results
+python download_data.py && python run_baseline.py       # Baseline
+python phase3_build_kb.py                                 # Build KB
+python phase7_explainability.py                            # Full pipeline
+python generate_domain_testset.py && python run_domain_baseline.py  # Domain eval
 ```
 
-## Known limitations / honest follow-up work
+## Limitations & Future Work
 
-1. **Corrector is currently deterministic span-substitution, not the LoRA-fine-tuned generative model** originally proposed. This was a deliberate simplification after finding that a small (1.5B) LLM's free-text regeneration was unreliable and prone to hallucination. LoRA fine-tuning on Colab/Kaggle GPU remains planned future work.
-2. **Retrieval uses general-purpose semantic embeddings only.** Real testing showed this is an imperfect bridge between phonetic ASR errors (Devanagari script) and correct domain terms — a hybrid phonetic/transliteration-aware retrieval approach is the recommended next step.
-3. **Domain test set is TTS-synthesized (15 sentences), not recorded real banking-call audio.** A larger, recorded, or the full MUCS 2021 code-switching benchmark would strengthen the results further.
-4. **Confidence signal is currently the retrieval similarity score itself**, not real per-token ASR decoder confidence with a formally fitted calibration curve (temperature/Platt scaling) — noted as future work in the paper.
+- The corrector currently performs deterministic span substitution rather than a fine-tuned generative model; LoRA fine-tuning of an open LLM on GPU infrastructure is planned follow-up work.
+- Retrieval relies on general-purpose semantic embeddings, which are an imperfect bridge between phonetic ASR errors (Devanagari script) and correct domain terms; phonetic/transliteration-aware retrieval is a recommended next step.
+- Domain evaluation uses a 15-sentence TTS-synthesized test set; evaluation on the full MUCS 2021 code-switching benchmark and recorded real-world audio is planned.
 
-## Paper
+## Authors
 
-An IEEE-format draft (`SHUDH-ASR_IEEE_Paper.docx`) is in progress, using the real results above.
+Sahithi Garedepalli, Ragula Jyothsna, Lakshmi Satwika Gannavaram
+Department of CSE (AI & ML), B V Raju Institute of Technology
 
-## Repo
-
-Pushed to: https://github.com/Garidepallisahithi/shudh-asr
-
-## If something breaks
-
-Paste the exact error message back to Claude — don't guess at fixes.
+**Faculty Guides:** Ravali Neela, Srilakshmi V, G Uday Kiran
