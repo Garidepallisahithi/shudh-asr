@@ -1,0 +1,14 @@
+# --- Phase 1 (baseline ASR + WER) needs only these four ---
+torch
+transformers
+datasets
+jiwer
+soundfile
+librosa
+
+# --- Later phases (not needed yet, listed so you know what's coming) ---
+# accelerate, peft, bitsandbytes   -> Phase 4 (fine-tuning the corrector LLM)
+# faiss-cpu, sentence-transformers -> Phase 3 (retrieval / knowledge base)
+# langgraph, langchain-core        -> Phase 4-5 (agent orchestration)
+# netcal                           -> Phase 6 (calibration)
+# fastapi, uvicorn, streamlit      -> Phase 7 (demo)
