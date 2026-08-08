@@ -1,92 +1,76 @@
-# SHUDH-ASR — Phase 1: Baseline
+# SHUDH-ASR
 
-This is the very first thing to run. Do these steps **in order, in your
-VSCode terminal, on your own machine** (not in a notebook, keep it simple).
+Retrieval-grounded, agentic, confidence-calibrated post-ASR error correction
+for code-switched Indian languages, with a domain focus on banking/PMJDY
+terminology.
 
-## Step 1 — create the folder and copy these files in
+## Project status: all 8 phases complete
 
-Put `requirements.txt`, `src/download_data.py`, and `src/run_baseline.py`
-into a new folder called `shudh-asr` on your machine, matching this layout:
+| Phase | Script | Status | Key result |
+|---|---|---|---|
+| 1. ASR baseline | `src/run_baseline.py` | ✅ Done | Whisper-small on FLEURS Hindi: WER 68.00% |
+| 2. Naive LLM correction (no retrieval) | `src/phase2_naive_correction.py` | ✅ Done | WER rose to 98.10% — confirms the documented over-correction/hallucination failure mode |
+| 3. Domain knowledge base + retrieval | `src/phase3_build_kb.py` | ✅ Done | FAISS + multilingual embeddings, English + Devanagari terms, n-gram span matching |
+| 4. RAG-grounded correction | `src/phase4_rag_correction.py` | ✅ Done | Deterministic span substitution (not free LLM generation — found to be more reliable) |
+| 5. Verifier agent | `src/phase5_verifier.py` | ✅ Done | Rejects corrections not grounded in retrieval evidence |
+| 6. Confidence calibration + abstention | `src/phase6_calibration.py` | ✅ Done | 3-tier decision: auto-correct / flag for review / abstain |
+| 7. Full pipeline + explainability | `src/phase7_explainability.py` | ✅ Done | End-to-end pipeline with human-readable correction rationale |
+| 8. Domain-matched evaluation | `src/generate_domain_testset.py`, `src/run_domain_baseline.py` | ✅ Done | 15 TTS-synthesized banking/PMJDY sentences; see results below |
 
-```
-shudh-asr/
-├── requirements.txt
-├── data/              <- create this empty folder
-└── src/
-    ├── download_data.py
-    └── run_baseline.py
-```
+## Final results
 
-```bash
-mkdir -p shudh-asr/data shudh-asr/src
+**General-domain (FLEURS Hindi):**
+- Baseline ASR: WER 68.00%
+- + naive LLM correction: WER 98.10% (worse — confirms failure mode)
+- + SHUDH-ASR (conservative threshold): WER 68.00% (unchanged — correctly abstains, no banking content present)
+
+**Domain-matched (banking/PMJDY, TTS-synthesized):**
+- Baseline ASR: WER 51.28%
+- + SHUDH-ASR (conservative threshold, 0.8): WER 51.28% (unchanged — safe, but low recall)
+- + SHUDH-ASR (permissive threshold, 0.45): WER 61.54% (worse — over-correction risk, motivates precision-first design)
+
+**Key finding:** a precision-first (conservative threshold) design avoids introducing harm, at the cost of coverage. This motivates the paper's central claim and points to phonetic/transliteration-aware retrieval as necessary future work, since pure semantic-embedding retrieval is an unreliable bridge between Devanagari-script ASR errors and correct domain terms.
+
+## Setup (if starting fresh on a new machine)
+
+```powershell
 cd shudh-asr
-# now copy the 3 files into place
-```
-
-## Step 2 — set up Python
-
-```bash
-conda create -n shudh-asr python=3.11 -y
-conda activate shudh-asr
+python -m venv .venv
+.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-If you don't have conda, `python3 -m venv venv && source venv/bin/activate`
-works the same way.
+## Reproducing the results, in order
 
-## Step 3 — download a small test set (takes ~1 minute)
-
-```bash
+```powershell
 cd src
-python download_data.py
+python download_data.py              # Phase 1 data
+python run_baseline.py                # Phase 1
+python phase2_naive_correction.py     # Phase 2
+python phase3_build_kb.py             # Phase 3
+python phase4_rag_correction.py       # Phase 4
+python phase5_verifier.py             # Phase 5
+python phase6_calibration.py          # Phase 6
+python phase7_explainability.py       # Phase 7
+python generate_domain_testset.py     # Phase 8 data (needs: pip install gTTS)
+python run_domain_baseline.py         # Phase 8 final results
 ```
 
-This pulls 20 real Hindi audio clips with correct transcripts from Google's
-public FLEURS dataset (no login needed). It's just to prove your pipeline
-works before you deal with the bigger, messier MUCS 2021 code-switching
-dataset.
+## Known limitations / honest follow-up work
 
-## Step 4 — run the baseline ASR and get your first WER number
+1. **Corrector is currently deterministic span-substitution, not the LoRA-fine-tuned generative model** originally proposed. This was a deliberate simplification after finding that a small (1.5B) LLM's free-text regeneration was unreliable and prone to hallucination. LoRA fine-tuning on Colab/Kaggle GPU remains planned future work.
+2. **Retrieval uses general-purpose semantic embeddings only.** Real testing showed this is an imperfect bridge between phonetic ASR errors (Devanagari script) and correct domain terms — a hybrid phonetic/transliteration-aware retrieval approach is the recommended next step.
+3. **Domain test set is TTS-synthesized (15 sentences), not recorded real banking-call audio.** A larger, recorded, or the full MUCS 2021 code-switching benchmark would strengthen the results further.
+4. **Confidence signal is currently the retrieval similarity score itself**, not real per-token ASR decoder confidence with a formally fitted calibration curve (temperature/Platt scaling) — noted as future work in the paper.
 
-```bash
-python run_baseline.py
-```
+## Paper
 
-First run downloads the Whisper model (~1.5GB) — be patient, this only
-happens once. At the end you'll see something like:
+An IEEE-format draft (`SHUDH-ASR_IEEE_Paper.docx`) is in progress, using the real results above.
 
-```
-BASELINE RESULTS (openai/whisper-medium)
-  Word Error Rate (WER): 14.32%
-  Char Error Rate (CER): 6.10%
-```
+## Repo
 
-**Write this number down.** This is Row 1 of your final comparison table.
-
-## What "success" looks like at this stage
-
-You don't need a low WER yet — you need the *pipeline to run end-to-end*
-without errors. A working 15-20% WER on FLEURS (clean, non-code-switched
-Hindi) is completely normal and fine.
-
-## Next steps (don't do these yet — one at a time)
-
-1. Swap `MODEL_NAME` in `run_baseline.py` for the real IndicWhisper
-   checkpoint from https://models.ai4bharat.org/ for Hindi/Telugu.
-2. Download the real MUCS 2021 code-switching test set from
-   https://openslr.org/104/ and re-run baseline on that — this is your
-   real Phase 1 number (WER will be much higher, 28-34%, that's expected
-   and matches the literature).
-3. `src/phase2_naive_correction.py` and `src/phase3_build_kb.py` are
-   already in this zip (written, syntax-checked) but NOT yet confirmed to
-   run on your machine. Run Phase 1 successfully first, confirm the WER
-   number prints, THEN run Phase 2:
-   ```
-   python phase2_naive_correction.py
-   ```
-   Report the output back before touching Phase 3.
+Pushed to: https://github.com/Garidepallisahithi/shudh-asr
 
 ## If something breaks
 
-Paste the exact error message back here — don't guess at fixes, I'll tell
-you exactly what's wrong and give you the corrected file.
+Paste the exact error message back to Claude — don't guess at fixes.
