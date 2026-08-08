@@ -92,7 +92,4 @@ python generate_domain_testset.py && python run_domain_baseline.py  # Domain eva
 
 ## Authors
 
-Sahithi Garedepalli, Ragula Jyothsna, Lakshmi Satwika Gannavaram
-Department of CSE (AI & ML), B V Raju Institute of Technology
-
-**Faculty Guides:** Ravali Neela, Srilakshmi V, G Uday Kiran
+Garedepalli Sahithi
